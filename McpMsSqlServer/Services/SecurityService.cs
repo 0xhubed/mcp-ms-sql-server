@@ -75,6 +75,55 @@ public class SecurityService
         return schema.Equals(allowedSchema, StringComparison.OrdinalIgnoreCase);
     }
     
+    public async Task<(bool IsValid, string? ErrorMessage)> ValidateQueryAsync(string query)
+    {
+        return await Task.Run(() =>
+        {
+            var result = ValidateQuery(query, "SELECT");
+            return (result.IsValid, result.Error);
+        });
+    }
+    
+    public async Task<(bool IsValid, string? ErrorMessage)> ValidateTableAccessAsync(string schema, string tableName)
+    {
+        return await Task.Run(() =>
+        {
+            if (!IsSchemaAllowed(schema))
+            {
+                return (false, $"Access to schema '{schema}' is not allowed");
+            }
+            
+            var config = _configService.CurrentConfig;
+            if (config.RestrictedTables.Any(rt => rt.Equals(tableName, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (false, $"Access to table '{tableName}' is restricted");
+            }
+            
+            return (true, null);
+        });
+    }
+    
+    public async Task<(bool IsValid, string? ErrorMessage)> ValidateWhereClauseAsync(string whereClause)
+    {
+        return await Task.Run(() =>
+        {
+            if (string.IsNullOrWhiteSpace(whereClause))
+            {
+                return (false, "WHERE clause cannot be empty");
+            }
+            
+            foreach (var pattern in _dangerousPatterns)
+            {
+                if (Regex.IsMatch(whereClause, pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline))
+                {
+                    return (false, "WHERE clause contains potentially dangerous SQL patterns");
+                }
+            }
+            
+            return (true, null);
+        });
+    }
+    
     private bool ContainsWhereClause(string query)
     {
         var wherePattern = @"\bWHERE\s+.+";

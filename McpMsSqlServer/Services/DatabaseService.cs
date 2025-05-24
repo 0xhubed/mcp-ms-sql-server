@@ -141,7 +141,7 @@ public class DatabaseService
         return GetSchemaPrefix() + $"[{tableName}]";
     }
     
-    private SqlConnection CreateConnection()
+    public SqlConnection CreateConnection()
     {
         return new SqlConnection(_configService.CurrentConfig.ConnectionString);
     }

@@ -44,4 +44,16 @@ public class TransactionService
             return 0;
         });
     }
+    
+    public async Task LogOperationAsync(string operationType, string tableName, string description, string? details = null)
+    {
+        await Task.Run(() =>
+        {
+            _logger.LogInformation($"[AUDIT] {operationType} on {tableName}: {description}");
+            if (!string.IsNullOrEmpty(details))
+            {
+                _logger.LogDebug($"[AUDIT DETAILS] {details}");
+            }
+        });
+    }
 }
