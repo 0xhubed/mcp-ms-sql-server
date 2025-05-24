@@ -1,0 +1,27 @@
+{
+  "name": "Data Analytics Dashboard",
+  "connectionString": "Server=analytics-srv;Database=DataWarehouse;User Id=analyst;Password=secure_pwd;TrustServerCertificate=true;",
+  "allowedSchema": "reporting",
+  "permissions": {
+    "allowRead": true,
+    "allowWrite": false,
+    "allowDelete": false,
+    "allowSchemaChanges": false
+  },
+  "security": {
+    "requireWhereClause": false,
+    "maxRowsPerQuery": 10000,
+    "maxRowsPerUpdate": 0,
+    "maxRowsPerDelete": 0,
+    "auditOperations": false,
+    "backupRecommendations": false
+  },
+  "querySettings": {
+    "timeoutSeconds": 120,
+    "enableQueryPlan": true,
+    "allowJoins": true,
+    "allowSubqueries": true
+  },
+  "restrictedTables": [],
+  "allowedOperations": ["SELECT"]
+}

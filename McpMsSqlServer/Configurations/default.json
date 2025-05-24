@@ -1,0 +1,27 @@
+{
+  "name": "Default Configuration",
+  "connectionString": "Server=localhost;Database=TestDB;Integrated Security=true;TrustServerCertificate=true;",
+  "allowedSchema": "dbo",
+  "permissions": {
+    "allowRead": true,
+    "allowWrite": false,
+    "allowDelete": false,
+    "allowSchemaChanges": false
+  },
+  "security": {
+    "requireWhereClause": true,
+    "maxRowsPerQuery": 100,
+    "maxRowsPerUpdate": 10,
+    "maxRowsPerDelete": 5,
+    "auditOperations": true,
+    "backupRecommendations": true
+  },
+  "querySettings": {
+    "timeoutSeconds": 30,
+    "enableQueryPlan": false,
+    "allowJoins": true,
+    "allowSubqueries": true
+  },
+  "restrictedTables": [],
+  "allowedOperations": ["SELECT"]
+}

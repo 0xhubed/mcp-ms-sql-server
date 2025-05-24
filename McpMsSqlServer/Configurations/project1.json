@@ -1,0 +1,27 @@
+{
+  "name": "E-Commerce Application",
+  "connectionString": "Server=localhost;Database=ECommerceDB;Integrated Security=true;TrustServerCertificate=true;",
+  "allowedSchema": "ecommerce",
+  "permissions": {
+    "allowRead": true,
+    "allowWrite": true,
+    "allowDelete": true,
+    "allowSchemaChanges": false
+  },
+  "security": {
+    "requireWhereClause": true,
+    "maxRowsPerQuery": 1000,
+    "maxRowsPerUpdate": 100,
+    "maxRowsPerDelete": 10,
+    "auditOperations": true,
+    "backupRecommendations": true
+  },
+  "querySettings": {
+    "timeoutSeconds": 30,
+    "enableQueryPlan": true,
+    "allowJoins": true,
+    "allowSubqueries": true
+  },
+  "restrictedTables": ["user_sessions", "payment_tokens"],
+  "allowedOperations": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+}
