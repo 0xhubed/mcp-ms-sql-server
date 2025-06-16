@@ -25,16 +25,16 @@ A configurable **Model Context Protocol (MCP) server** for Microsoft SQL Server 
 - **Configuration Management**: Switch between project configurations dynamically
 
 ### 🚀 **AI Integration**
-- **Claude Code integration** - Seamless setup with Claude's development environment
+- **Claude Desktop integration** - Seamless setup with Claude Desktop app
 - **MCP protocol compliance** - Works with any MCP-compatible client
 - **Natural language interface** - Interact with databases using plain English
 - **Error handling** - Clear, actionable error messages for AI and humans
 
 ## 📋 Prerequisites
 
-- **.NET 8.0 or later**
+- **.NET 9.0 or later**
 - **Microsoft SQL Server** (any supported version)
-- **Claude Code CLI** (for Claude integration)
+- **Claude Desktop** (for Claude integration)
 - **Appropriate database permissions** for the operations you want to perform
 
 ## 🚀 Quick Start
@@ -47,10 +47,7 @@ git clone https://github.com/yourusername/mcp-ms-sql-server.git
 cd mcp-ms-sql-server
 
 # Build the project
-dotnet build
-
-# Test the installation
-dotnet run -- --help
+dotnet build -c Release
 ```
 
 ### 2. Create Project Configuration
@@ -62,7 +59,7 @@ Create a configuration file for your project in the `Configurations/` directory:
 {
   "name": "My E-Commerce Project",
   "connectionString": "Server=localhost;Database=ECommerceDB;Integrated Security=true;",
-  "allowedSchema": "ecommerce",
+  "allowedSchema": "dbo",
   "permissions": {
     "allowRead": true,
     "allowWrite": true,
@@ -76,17 +73,19 @@ Create a configuration file for your project in the `Configurations/` directory:
 }
 ```
 
-### 3. Configure Claude Code
+### 3. Configure Claude Desktop
 
-Add to your Claude Code configuration (`.claude.json`):
+Add to your Claude Desktop configuration:
+
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "sql-server": {
       "type": "stdio",
-      "command": "dotnet",
-      "args": ["run", "--project", "path/to/mcp-ms-sql-server"],
+      "command": "C:\\Git\\mcp-ms-sql-server\\McpMsSqlServer\\bin\\Release\\net9.0\\McpMsSqlServer.exe",
       "env": {
         "MCP_CONFIG_NAME": "my-project"
       }
@@ -95,15 +94,15 @@ Add to your Claude Code configuration (`.claude.json`):
 }
 ```
 
+**Note**: First build the project with `dotnet build -c Release` to create the executable.
+
 ### 4. Start Using
 
-```bash
-# In Claude Code, you can now ask:
-"Show me all tables in the database"
-"Insert a new customer with name 'John Doe' and email 'john@example.com'"
-"What are the top 10 products by sales?"
-"Update the price of product with ID 123 to $29.99"
-```
+In Claude Desktop, you can now ask:
+- "Show me all tables in the database"
+- "Insert a new customer with name 'John Doe' and email 'john@example.com'"
+- "What are the top 10 products by sales?"
+- "Update the price of product with ID 123 to $29.99"
 
 ## 📖 Configuration Guide
 
@@ -190,16 +189,27 @@ Add to your Claude Code configuration (`.claude.json`):
 
 ## 🛠️ Available Tools
 
-| Tool | Description | Permissions Required |
-|------|-------------|---------------------|
-| `execute_query` | Run SELECT statements | `allowRead` |
-| `insert_records` | Insert new data | `allowWrite` |
-| `update_records` | Modify existing data | `allowWrite` |
-| `delete_records` | Remove data | `allowDelete` |
-| `get_schema_info` | Explore database structure | `allowRead` |
-| `get_table_info` | Get table details and stats | `allowRead` |
-| `switch_configuration` | Change active project | Always allowed |
-| `list_configurations` | Show available configs | Always allowed |
+### Configuration Management (4 tools)
+- **ListConfigurations** - Show all available project configurations
+- **SwitchConfiguration** - Switch to a different project configuration
+- **GetCurrentConfiguration** - View current configuration details
+- **TestConnection** - Test database connectivity
+
+### Core Database Operations (6 tools)
+- **ExecuteQuery** - Run SELECT queries within allowed schema
+- **GetSchemaInfo** - Explore database structure and objects
+- **GetTableInfo** - Get table metadata and sample data
+- **InsertRecords** - Insert new records with transaction support
+- **UpdateRecords** - Update existing records (requires WHERE clause)
+- **DeleteRecords** - Delete records (requires WHERE clause)
+
+### Advanced Features (6 tools)
+- **BuildQuery** - Generate SQL queries from natural language
+- **AnalyzeQueryPerformance** - Analyze query execution plans
+- **GetDatabasePerformanceStats** - Database performance metrics
+- **DiscoverData** - Search tables/columns by patterns
+- **AnalyzeTableRelationships** - Find table relationships
+- **ProfileDataQuality** - Analyze data quality and statistics
 
 ## 🔒 Security Considerations
 
@@ -242,14 +252,14 @@ dotnet restore
 # Run tests
 dotnet test
 
-# Start development server
-dotnet run -- --config dev
+# Build and test
+dotnet build -c Release
 ```
 
 ## 📚 Documentation
 
 - [Configuration Guide](docs/configuration-guide.md)
-- [Claude Code Setup](docs/claude-code-setup.md)
+- [Claude Desktop Setup](docs/claude-desktop-setup.md)
 - [Security Best Practices](docs/security-guide.md)
 - [API Reference](docs/api-reference.md)
 - [Troubleshooting](docs/troubleshooting.md)

@@ -1,7 +1,7 @@
 {
-  "name": "Trading Application",
+  "name": "trading",
   "connectionString": "Server=(localdb)\\MSSQLLocalDB;Database=Trading;Trusted_Connection=True;",
-  "allowedSchema": "Trading",
+  "allowedSchema": "dbo",
   "permissions": {
     "allowRead": true,
     "allowWrite": true,

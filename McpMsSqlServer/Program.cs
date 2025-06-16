@@ -18,24 +18,11 @@ builder.Services
     .WithStdioServerTransport()
     .WithToolsFromAssembly();
 
-// Configure logging
-if (Environment.GetEnvironmentVariable("MCP_DEBUG") == "true")
-{
-    builder.Logging.SetMinimumLevel(LogLevel.Debug);
-}
-else
-{
-    builder.Logging.SetMinimumLevel(LogLevel.Warning);
-}
+// Configure logging - disable all console logging to avoid interfering with JSON-RPC
+builder.Logging.ClearProviders();
+// No logging providers added - this ensures nothing goes to stdout/stderr
 
 var host = builder.Build();
 
-// Log startup
-var logger = host.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation("MCP SQL Server starting...");
-
-// Test services are available
-var configService = host.Services.GetRequiredService<ConfigService>();
-logger.LogInformation($"Loaded configurations: {string.Join(", ", configService.ListConfigurations())}");
-
+// No startup logging to avoid stdout pollution
 await host.RunAsync();

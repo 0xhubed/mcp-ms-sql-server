@@ -13,7 +13,20 @@ public class ConfigService
     
     public ConfigService()
     {
-        _configPath = Environment.GetEnvironmentVariable("MCP_CONFIG_PATH") ?? "./Configurations";
+        // Get the base directory where the executable is located
+        var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        
+        // Look for Configurations folder in the project root (going up from bin/Release/net9.0)
+        var projectRoot = baseDirectory;
+        if (baseDirectory.Contains("bin"))
+        {
+            // Navigate up to project root
+            projectRoot = Path.GetFullPath(Path.Combine(baseDirectory, "..", "..", ".."));
+        }
+        
+        _configPath = Environment.GetEnvironmentVariable("MCP_CONFIG_PATH") 
+            ?? Path.Combine(projectRoot, "Configurations");
+            
         LoadConfigurations();
         
         var configName = Environment.GetEnvironmentVariable("MCP_CONFIG_NAME");
