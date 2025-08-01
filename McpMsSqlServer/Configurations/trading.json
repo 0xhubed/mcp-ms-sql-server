@@ -23,5 +23,5 @@
     "allowSubqueries": true
   },
   "restrictedTables": [ "user_sessions", "payment_tokens" ],
-  "allowedOperations": [ "SELECT", "INSERT", "UPDATE", "DELETE" ]
+  "allowedOperations": [ "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE" ]
 }

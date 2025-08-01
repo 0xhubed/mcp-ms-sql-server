@@ -1,27 +1,27 @@
 {
   "name": "Default Configuration",
-  "connectionString": "Server=localhost;Database=TestDB;Integrated Security=true;TrustServerCertificate=true;",
+  "connectionString": "Server=(localdb)\\MSSQLLocalDB;Database=Trading;Trusted_Connection=True;",
   "allowedSchema": "dbo",
   "permissions": {
     "allowRead": true,
-    "allowWrite": false,
-    "allowDelete": false,
+    "allowWrite": true,
+    "allowDelete": true,
     "allowSchemaChanges": false
   },
   "security": {
     "requireWhereClause": true,
-    "maxRowsPerQuery": 100,
-    "maxRowsPerUpdate": 10,
-    "maxRowsPerDelete": 5,
+    "maxRowsPerQuery": 1000,
+    "maxRowsPerUpdate": 100,
+    "maxRowsPerDelete": 10,
     "auditOperations": true,
     "backupRecommendations": true
   },
   "querySettings": {
     "timeoutSeconds": 30,
-    "enableQueryPlan": false,
+    "enableQueryPlan": true,
     "allowJoins": true,
     "allowSubqueries": true
   },
-  "restrictedTables": [],
-  "allowedOperations": ["SELECT"]
+  "restrictedTables": [ "user_sessions", "payment_tokens" ],
+  "allowedOperations": [ "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE" ]
 }
