@@ -143,6 +143,18 @@ public class DatabaseService
     
     public SqlConnection CreateConnection()
     {
-        return new SqlConnection(_configService.CurrentConfig.ConnectionString);
+        var connectionString = _configService.CurrentConfig.ConnectionString;
+        var currentDb = _configService.CurrentDatabase;
+
+        if (!string.IsNullOrEmpty(currentDb))
+        {
+            var builder = new SqlConnectionStringBuilder(connectionString)
+            {
+                InitialCatalog = currentDb
+            };
+            connectionString = builder.ConnectionString;
+        }
+
+        return new SqlConnection(connectionString);
     }
 }

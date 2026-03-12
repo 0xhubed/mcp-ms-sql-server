@@ -4,6 +4,8 @@ public class DatabaseConfig
 {
     public string Name { get; set; } = string.Empty;
     public string ConnectionString { get; set; } = string.Empty;
+    public List<string> AvailableDatabases { get; set; } = new();
+    public string DefaultDatabase { get; set; } = string.Empty;
     public string AllowedSchema { get; set; } = string.Empty;
     public PermissionSettings Permissions { get; set; } = new();
     public SecuritySettings Security { get; set; } = new();

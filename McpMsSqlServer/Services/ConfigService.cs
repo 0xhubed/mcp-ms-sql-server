@@ -8,8 +8,12 @@ public class ConfigService
     private readonly string _configPath;
     private Dictionary<string, DatabaseConfig> _configurations = new();
     private string _currentConfigName = "default";
-    
+    private string? _currentDatabase;
+
     public DatabaseConfig CurrentConfig => GetConfiguration(_currentConfigName);
+    public string CurrentDatabase => _currentDatabase
+        ?? CurrentConfig.DefaultDatabase
+        ?? string.Empty;
     
     public ConfigService()
     {
@@ -54,9 +58,10 @@ public class ConfigService
                 {
                     PropertyNameCaseInsensitive = true
                 });
-                
+
                 if (config != null)
                 {
+                    config.ConnectionString = ResolveEnvironmentVariables(config.ConnectionString);
                     var configName = Path.GetFileNameWithoutExtension(file);
                     _configurations[configName] = config;
                 }
@@ -90,9 +95,26 @@ public class ConfigService
         if (_configurations.ContainsKey(configName))
         {
             _currentConfigName = configName;
+            _currentDatabase = null;
             return $"Switched to configuration: {configName}";
         }
         return $"Configuration '{configName}' not found. Available: {string.Join(", ", _configurations.Keys)}";
+    }
+
+    public string SwitchDatabase(string databaseName)
+    {
+        var available = CurrentConfig.AvailableDatabases;
+        if (available.Count > 0 && !available.Contains(databaseName, StringComparer.OrdinalIgnoreCase))
+        {
+            return $"Database '{databaseName}' is not in the available databases list. Available: {string.Join(", ", available)}";
+        }
+        _currentDatabase = databaseName;
+        return $"Switched to database: {databaseName}";
+    }
+
+    public List<string> ListAvailableDatabases()
+    {
+        return CurrentConfig.AvailableDatabases;
     }
     
     public string GetCurrentConfigurationInfo()
@@ -101,6 +123,8 @@ public class ConfigService
         return JsonSerializer.Serialize(new
         {
             Name = config.Name,
+            CurrentDatabase = CurrentDatabase,
+            AvailableDatabases = config.AvailableDatabases,
             Schema = config.AllowedSchema,
             Permissions = config.Permissions,
             Security = new
@@ -114,6 +138,17 @@ public class ConfigService
         }, new JsonSerializerOptions { WriteIndented = true });
     }
     
+    private static string ResolveEnvironmentVariables(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return value;
+
+        return System.Text.RegularExpressions.Regex.Replace(value, @"\$\{(\w+)\}", match =>
+        {
+            var envVar = Environment.GetEnvironmentVariable(match.Groups[1].Value);
+            return envVar ?? match.Value;
+        });
+    }
+
     private DatabaseConfig CreateDefaultConfig()
     {
         return new DatabaseConfig

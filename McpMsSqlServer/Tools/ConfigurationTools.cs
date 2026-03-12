@@ -31,4 +31,25 @@ public static class ConfigurationTools
     {
         return configService.GetCurrentConfigurationInfo();
     }
+
+    [McpServerTool]
+    [Description("Switch to a different database within the current configuration")]
+    public static string SwitchDatabase(
+        ConfigService configService,
+        [Description("The name of the database to switch to")] string databaseName)
+    {
+        return configService.SwitchDatabase(databaseName);
+    }
+
+    [McpServerTool]
+    [Description("List all available databases in the current configuration")]
+    public static string ListDatabases(ConfigService configService)
+    {
+        var databases = configService.ListAvailableDatabases();
+        return JsonSerializer.Serialize(new
+        {
+            currentDatabase = configService.CurrentDatabase,
+            availableDatabases = databases
+        }, new JsonSerializerOptions { WriteIndented = true });
+    }
 }
