@@ -79,4 +79,35 @@ public class SchemaScopeTests
     {
         SchemaScope.EnsureAllowed("SALES", Config("dbo", "sales"));
     }
+
+    [Fact]
+    public void ResolveWithDefault_UsesPrimarySchema_ForBareName()
+    {
+        var reference = SchemaScope.ResolveWithDefault("Orders", Config("dbo", "sales"));
+
+        Assert.Equal("dbo", reference.Schema);
+        Assert.Equal("Orders", reference.Table);
+    }
+
+    [Fact]
+    public void ResolveWithDefault_KeepsQualifiedSchema_WhenAllowed()
+    {
+        var reference = SchemaScope.ResolveWithDefault("sales.Orders", Config("dbo", "sales"));
+
+        Assert.Equal("sales", reference.Schema);
+        Assert.Equal("Orders", reference.Table);
+    }
+
+    [Fact]
+    public void ResolveWithDefault_RejectsQualifiedSchema_OutsideList()
+    {
+        Assert.Throws<UnauthorizedAccessException>(
+            () => SchemaScope.ResolveWithDefault("hr.People", Config("dbo", "sales")));
+    }
+
+    [Fact]
+    public void QualifiedName_BracketsBothParts()
+    {
+        Assert.Equal("[sales].[Order Lines]", SchemaScope.QualifiedName(new TableReference("sales", "Order Lines")));
+    }
 }

@@ -52,7 +52,7 @@ public static class QueryBuilderTool
             // If no tables provided, try to extract from description
             if (!tableList.Any())
             {
-                tableList = await ExtractTableNamesFromDescription(databaseService, config.AllowedSchema, descriptionLower);
+                tableList = await ExtractTableNamesFromDescription(databaseService, config.PrimarySchema, descriptionLower);
             }
 
             if (!tableList.Any())
@@ -67,16 +67,16 @@ public static class QueryBuilderTool
             switch (queryType)
             {
                 case "SELECT":
-                    queryBuilder = BuildSelectQuery(descriptionLower, tableList, config.AllowedSchema);
+                    queryBuilder = BuildSelectQuery(descriptionLower, tableList, config.PrimarySchema);
                     break;
                 case "INSERT":
-                    queryBuilder = BuildInsertTemplate(descriptionLower, tableList[0], config.AllowedSchema);
+                    queryBuilder = BuildInsertTemplate(descriptionLower, tableList[0], config.PrimarySchema);
                     break;
                 case "UPDATE":
-                    queryBuilder = BuildUpdateTemplate(descriptionLower, tableList[0], config.AllowedSchema);
+                    queryBuilder = BuildUpdateTemplate(descriptionLower, tableList[0], config.PrimarySchema);
                     break;
                 case "DELETE":
-                    queryBuilder = BuildDeleteTemplate(descriptionLower, tableList[0], config.AllowedSchema);
+                    queryBuilder = BuildDeleteTemplate(descriptionLower, tableList[0], config.PrimarySchema);
                     break;
             }
 
@@ -84,7 +84,7 @@ public static class QueryBuilderTool
             var tableInfo = new Dictionary<string, List<ColumnInfo>>();
             foreach (var table in tableList)
             {
-                var columns = await GetTableColumns(databaseService, config.AllowedSchema, table);
+                var columns = await GetTableColumns(databaseService, config.PrimarySchema, table);
                 if (columns.Any())
                 {
                     tableInfo[table] = columns;
@@ -95,7 +95,7 @@ public static class QueryBuilderTool
             var joinSuggestions = new List<string>();
             if (tableList.Count > 1 && queryType == "SELECT")
             {
-                joinSuggestions = await GenerateJoinSuggestions(databaseService, config.AllowedSchema, tableList);
+                joinSuggestions = await GenerateJoinSuggestions(databaseService, config.PrimarySchema, tableList);
             }
 
             return JsonSerializer.Serialize(new
@@ -106,7 +106,7 @@ public static class QueryBuilderTool
                 tableInfo = tableInfo,
                 joinSuggestions = joinSuggestions,
                 notes = GenerateQueryNotes(queryType, descriptionLower),
-                examples = GenerateQueryExamples(queryType, tableList[0], config.AllowedSchema)
+                examples = GenerateQueryExamples(queryType, tableList[0], config.PrimarySchema)
             }, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (Exception ex)

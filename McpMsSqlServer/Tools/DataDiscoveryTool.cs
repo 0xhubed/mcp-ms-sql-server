@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using McpMsSqlServer.Models;
 using McpMsSqlServer.Services;
 
 namespace McpMsSqlServer.Tools;
@@ -40,29 +41,29 @@ public static class DataDiscoveryTool
             searchType = searchType.ToLower();
             if (searchType == "table" || searchType == "both")
             {
-                discoveryResult.Tables = await SearchTables(connection, config.AllowedSchema, searchPattern);
+                discoveryResult.Tables = await SearchTables(connection, config, searchPattern);
             }
 
             if (searchType == "column" || searchType == "both")
             {
-                discoveryResult.Columns = await SearchColumns(connection, config.AllowedSchema, searchPattern);
+                discoveryResult.Columns = await SearchColumns(connection, config, searchPattern);
             }
 
-            // Get relationships for found tables
-            var allTables = discoveryResult.Tables.Select(t => t.TableName)
-                .Union(discoveryResult.Columns.Select(c => c.TableName))
+            // Get relationships for found tables (distinct across schemas)
+            var allTables = discoveryResult.Tables.Select(t => new TableReference(t.Schema, t.TableName))
+                .Union(discoveryResult.Columns.Select(c => new TableReference(c.Schema, c.TableName)))
                 .Distinct()
                 .ToList();
 
             if (allTables.Any())
             {
-                discoveryResult.Relationships = await DiscoverRelationships(connection, config.AllowedSchema, allTables);
+                discoveryResult.Relationships = await DiscoverRelationships(connection, config, allTables.Select(t => t.Table).Distinct().ToList());
             }
 
             // Get data profiling if requested
             if (includeDataProfile && allTables.Any())
             {
-                discoveryResult.DataProfiles = await ProfileData(connection, config.AllowedSchema, allTables.Take(10).ToList());
+                discoveryResult.DataProfiles = await ProfileData(connection, allTables.Take(10).ToList());
             }
 
             return JsonSerializer.Serialize(new
@@ -98,41 +99,49 @@ public static class DataDiscoveryTool
             
             // Default values are already set by parameters
 
-            var tables = tableNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-            
+            var requested = tableNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+            using var connection = databaseService.CreateConnection();
+            await connection.OpenAsync();
+
+            // Each entry may be "table" or "schema.table"; bare names must be unique across allowed schemas
+            var tables = new List<TableReference>();
+            foreach (var name in requested)
+            {
+                tables.Add(await SchemaScope.ResolveAsync(connection, config, name));
+            }
+
             var relationshipAnalysis = new RelationshipAnalysis
             {
-                AnalyzedTables = tables,
+                AnalyzedTables = tables.Select(SchemaScope.QualifiedName).ToList(),
                 ForeignKeys = new List<ForeignKeyInfo>(),
                 ReferencingTables = new Dictionary<string, List<string>>(),
                 ReferencedTables = new Dictionary<string, List<string>>(),
                 DependencyTree = new Dictionary<string, DependencyNode>()
             };
 
-            using var connection = databaseService.CreateConnection();
-            await connection.OpenAsync();
-
             // Get all foreign keys for the tables
-            relationshipAnalysis.ForeignKeys = await GetForeignKeys(connection, config.AllowedSchema, tables);
+            relationshipAnalysis.ForeignKeys = await GetForeignKeys(connection, config, tables.Select(t => t.Table).Distinct().ToList());
 
             // Build referencing/referenced tables maps
             foreach (var table in tables)
             {
+                var key = SchemaScope.QualifiedName(table);
                 if (includeReferencingTables)
                 {
-                    relationshipAnalysis.ReferencingTables[table] = await GetReferencingTables(connection, config.AllowedSchema, table);
+                    relationshipAnalysis.ReferencingTables[key] = await GetReferencingTables(connection, table.Schema!, table.Table);
                 }
 
                 if (includeReferencedTables)
                 {
-                    relationshipAnalysis.ReferencedTables[table] = await GetReferencedTables(connection, config.AllowedSchema, table);
+                    relationshipAnalysis.ReferencedTables[key] = await GetReferencedTables(connection, table.Schema!, table.Table);
                 }
             }
 
             // Build dependency tree
             foreach (var table in tables)
             {
-                relationshipAnalysis.DependencyTree[table] = await BuildDependencyTree(connection, config.AllowedSchema, table, new HashSet<string>());
+                relationshipAnalysis.DependencyTree[SchemaScope.QualifiedName(table)] = await BuildDependencyTree(connection, table.Schema!, table.Table, new HashSet<string>());
             }
 
             // Generate relationship diagram
@@ -181,9 +190,12 @@ public static class DataDiscoveryTool
 
             foreach (var table in tables)
             {
-                var profile = await ProfileTableDataQuality(connection, config.AllowedSchema, table, sampleSize);
+                // Accepts "table" or "schema.table"; a bare name must be unique across allowed schemas
+                var reference = await SchemaScope.ResolveAsync(connection, config, table);
+                var profile = await ProfileTableDataQuality(connection, reference.Schema!, reference.Table, sampleSize);
                 if (profile != null)
                 {
+                    profile.Schema = reference.Schema!;
                     qualityProfiles.Add(profile);
                 }
             }
@@ -202,24 +214,26 @@ public static class DataDiscoveryTool
         }
     }
 
-    private static async Task<List<TableSearchResult>> SearchTables(SqlConnection connection, string schema, string pattern)
+    private static async Task<List<TableSearchResult>> SearchTables(SqlConnection connection, DatabaseConfig config, string pattern)
     {
         var results = new List<TableSearchResult>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("t.TABLE_SCHEMA", config);
+
+        var query = $@"
+            SELECT
+                t.TABLE_SCHEMA,
                 t.TABLE_NAME,
                 t.TABLE_TYPE,
                 p.rows as RowCount,
                 (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME) as ColumnCount
             FROM INFORMATION_SCHEMA.TABLES t
-            LEFT JOIN sys.partitions p ON p.object_id = OBJECT_ID(t.TABLE_SCHEMA + '.' + t.TABLE_NAME) AND p.index_id IN (0,1)
-            WHERE t.TABLE_SCHEMA = @schema
+            LEFT JOIN sys.partitions p ON p.object_id = OBJECT_ID(QUOTENAME(t.TABLE_SCHEMA) + '.' + QUOTENAME(t.TABLE_NAME)) AND p.index_id IN (0,1)
+            WHERE {filter.Sql}
             AND t.TABLE_NAME LIKE @pattern
-            ORDER BY t.TABLE_NAME";
+            ORDER BY t.TABLE_SCHEMA, t.TABLE_NAME";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
+        filter.ApplyTo(cmd);
         cmd.Parameters.AddWithValue("@pattern", pattern.Replace("*", "%"));
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -227,22 +241,25 @@ public static class DataDiscoveryTool
         {
             results.Add(new TableSearchResult
             {
-                TableName = reader.GetString(0),
-                TableType = reader.GetString(1),
-                RowCount = reader.IsDBNull(2) ? 0 : reader.GetInt64(2),
-                ColumnCount = reader.GetInt32(3)
+                Schema = reader.GetString(0),
+                TableName = reader.GetString(1),
+                TableType = reader.GetString(2),
+                RowCount = reader.IsDBNull(3) ? 0 : reader.GetInt64(3),
+                ColumnCount = reader.GetInt32(4)
             });
         }
 
         return results;
     }
 
-    private static async Task<List<ColumnSearchResult>> SearchColumns(SqlConnection connection, string schema, string pattern)
+    private static async Task<List<ColumnSearchResult>> SearchColumns(SqlConnection connection, DatabaseConfig config, string pattern)
     {
         var results = new List<ColumnSearchResult>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("c.TABLE_SCHEMA", config);
+
+        var query = $@"
+            SELECT
+                c.TABLE_SCHEMA,
                 c.TABLE_NAME,
                 c.COLUMN_NAME,
                 c.DATA_TYPE,
@@ -253,12 +270,12 @@ public static class DataDiscoveryTool
                 c.COLUMN_DEFAULT
             FROM INFORMATION_SCHEMA.COLUMNS c
             INNER JOIN INFORMATION_SCHEMA.TABLES t ON c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME
-            WHERE c.TABLE_SCHEMA = @schema
+            WHERE {filter.Sql}
             AND (c.COLUMN_NAME LIKE @pattern OR c.TABLE_NAME LIKE @pattern)
-            ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION";
+            ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
+        filter.ApplyTo(cmd);
         cmd.Parameters.AddWithValue("@pattern", pattern.Replace("*", "%"));
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -266,42 +283,46 @@ public static class DataDiscoveryTool
         {
             results.Add(new ColumnSearchResult
             {
-                TableName = reader.GetString(0),
-                ColumnName = reader.GetString(1),
-                DataType = reader.GetString(2),
-                IsNullable = reader.GetString(3) == "YES",
-                MaxLength = reader.IsDBNull(4) ? null : reader.GetInt32(4),
-                NumericPrecision = reader.IsDBNull(5) ? null : reader.GetByte(5),
-                NumericScale = reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                DefaultValue = reader.IsDBNull(7) ? null : reader.GetString(7)
+                Schema = reader.GetString(0),
+                TableName = reader.GetString(1),
+                ColumnName = reader.GetString(2),
+                DataType = reader.GetString(3),
+                IsNullable = reader.GetString(4) == "YES",
+                MaxLength = reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                NumericPrecision = reader.IsDBNull(6) ? null : reader.GetByte(6),
+                NumericScale = reader.IsDBNull(7) ? null : reader.GetInt32(7),
+                DefaultValue = reader.IsDBNull(8) ? null : reader.GetString(8)
             });
         }
 
         return results;
     }
 
-    private static async Task<List<TableRelationship>> DiscoverRelationships(SqlConnection connection, string schema, List<string> tables)
+    private static async Task<List<TableRelationship>> DiscoverRelationships(SqlConnection connection, DatabaseConfig config, List<string> tables)
     {
         var relationships = new List<TableRelationship>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(fk.schema_id)", config);
+
+        var query = $@"
+            SELECT
                 fk.name AS FK_Name,
+                OBJECT_SCHEMA_NAME(fk.parent_object_id) AS FK_Schema,
                 OBJECT_NAME(fk.parent_object_id) AS FK_Table,
                 COL_NAME(fkc.parent_object_id, fkc.parent_column_id) AS FK_Column,
+                OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS PK_Schema,
                 OBJECT_NAME(fk.referenced_object_id) AS PK_Table,
                 COL_NAME(fkc.referenced_object_id, fkc.referenced_column_id) AS PK_Column,
                 fk.delete_referential_action_desc AS DeleteAction,
                 fk.update_referential_action_desc AS UpdateAction
             FROM sys.foreign_keys fk
             INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-            WHERE SCHEMA_NAME(fk.schema_id) = @schema
+            WHERE {filter.Sql}
             AND (OBJECT_NAME(fk.parent_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ','))
                 OR OBJECT_NAME(fk.referenced_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ',')))
-            ORDER BY FK_Table, FK_Column";
+            ORDER BY FK_Schema, FK_Table, FK_Column";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
+        filter.ApplyTo(cmd);
         cmd.Parameters.AddWithValue("@tables", string.Join(",", tables));
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -310,25 +331,29 @@ public static class DataDiscoveryTool
             relationships.Add(new TableRelationship
             {
                 ConstraintName = reader.GetString(0),
-                ForeignKeyTable = reader.GetString(1),
-                ForeignKeyColumn = reader.GetString(2),
-                PrimaryKeyTable = reader.GetString(3),
-                PrimaryKeyColumn = reader.GetString(4),
-                DeleteAction = reader.GetString(5),
-                UpdateAction = reader.GetString(6)
+                ForeignKeySchema = reader.GetString(1),
+                ForeignKeyTable = reader.GetString(2),
+                ForeignKeyColumn = reader.GetString(3),
+                PrimaryKeySchema = reader.GetString(4),
+                PrimaryKeyTable = reader.GetString(5),
+                PrimaryKeyColumn = reader.GetString(6),
+                DeleteAction = reader.GetString(7),
+                UpdateAction = reader.GetString(8)
             });
         }
 
         return relationships;
     }
 
-    private static async Task<List<DataProfile>> ProfileData(SqlConnection connection, string schema, List<string> tables)
+    private static async Task<List<DataProfile>> ProfileData(SqlConnection connection, List<TableReference> tables)
     {
         var profiles = new List<DataProfile>();
 
-        foreach (var table in tables)
+        foreach (var reference in tables)
         {
-            var profile = new DataProfile { TableName = table, ColumnProfiles = new List<ColumnProfile>() };
+            var schema = reference.Schema!;
+            var table = reference.Table;
+            var profile = new DataProfile { Schema = schema, TableName = table, ColumnProfiles = new List<ColumnProfile>() };
             
             // Get column information
             var columnsQuery = @"
@@ -409,30 +434,33 @@ public static class DataDiscoveryTool
         return profiles;
     }
 
-    private static async Task<List<ForeignKeyInfo>> GetForeignKeys(SqlConnection connection, string schema, List<string> tables)
+    private static async Task<List<ForeignKeyInfo>> GetForeignKeys(SqlConnection connection, DatabaseConfig config, List<string> tables)
     {
         var foreignKeys = new List<ForeignKeyInfo>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(fk.schema_id)", config);
+
+        var query = $@"
+            SELECT
                 fk.name AS ConstraintName,
+                OBJECT_SCHEMA_NAME(fk.parent_object_id) AS FKSchema,
                 OBJECT_NAME(fk.parent_object_id) AS FKTable,
                 STUFF((SELECT ', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id)
                        FROM sys.foreign_key_columns fkc2
                        WHERE fkc2.constraint_object_id = fk.object_id
                        FOR XML PATH('')), 1, 2, '') AS FKColumns,
+                OBJECT_SCHEMA_NAME(fk.referenced_object_id) AS PKSchema,
                 OBJECT_NAME(fk.referenced_object_id) AS PKTable,
                 STUFF((SELECT ', ' + COL_NAME(fkc2.referenced_object_id, fkc2.referenced_column_id)
                        FROM sys.foreign_key_columns fkc2
                        WHERE fkc2.constraint_object_id = fk.object_id
                        FOR XML PATH('')), 1, 2, '') AS PKColumns
             FROM sys.foreign_keys fk
-            WHERE SCHEMA_NAME(fk.schema_id) = @schema
+            WHERE {filter.Sql}
             AND OBJECT_NAME(fk.parent_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ','))
-            ORDER BY FKTable";
+            ORDER BY FKSchema, FKTable";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
+        filter.ApplyTo(cmd);
         cmd.Parameters.AddWithValue("@tables", string.Join(",", tables));
 
         using var reader = await cmd.ExecuteReaderAsync();
@@ -441,10 +469,12 @@ public static class DataDiscoveryTool
             foreignKeys.Add(new ForeignKeyInfo
             {
                 ConstraintName = reader.GetString(0),
-                ForeignKeyTable = reader.GetString(1),
-                ForeignKeyColumns = reader.GetString(2),
-                ReferencedTable = reader.GetString(3),
-                ReferencedColumns = reader.GetString(4)
+                ForeignKeySchema = reader.GetString(1),
+                ForeignKeyTable = reader.GetString(2),
+                ForeignKeyColumns = reader.GetString(3),
+                ReferencedSchema = reader.GetString(4),
+                ReferencedTable = reader.GetString(5),
+                ReferencedColumns = reader.GetString(6)
             });
         }
 
@@ -873,6 +903,7 @@ public static class DataDiscoveryTool
 
     private class TableSearchResult
     {
+        public string Schema { get; set; } = "";
         public string TableName { get; set; } = "";
         public string TableType { get; set; } = "";
         public long RowCount { get; set; }
@@ -881,6 +912,7 @@ public static class DataDiscoveryTool
 
     private class ColumnSearchResult
     {
+        public string Schema { get; set; } = "";
         public string TableName { get; set; } = "";
         public string ColumnName { get; set; } = "";
         public string DataType { get; set; } = "";
@@ -894,8 +926,10 @@ public static class DataDiscoveryTool
     private class TableRelationship
     {
         public string ConstraintName { get; set; } = "";
+        public string ForeignKeySchema { get; set; } = "";
         public string ForeignKeyTable { get; set; } = "";
         public string ForeignKeyColumn { get; set; } = "";
+        public string PrimaryKeySchema { get; set; } = "";
         public string PrimaryKeyTable { get; set; } = "";
         public string PrimaryKeyColumn { get; set; } = "";
         public string DeleteAction { get; set; } = "";
@@ -904,6 +938,7 @@ public static class DataDiscoveryTool
 
     private class DataProfile
     {
+        public string Schema { get; set; } = "";
         public string TableName { get; set; } = "";
         public List<ColumnProfile> ColumnProfiles { get; set; } = new();
     }
@@ -932,8 +967,10 @@ public static class DataDiscoveryTool
     private class ForeignKeyInfo
     {
         public string ConstraintName { get; set; } = "";
+        public string ForeignKeySchema { get; set; } = "";
         public string ForeignKeyTable { get; set; } = "";
         public string ForeignKeyColumns { get; set; } = "";
+        public string ReferencedSchema { get; set; } = "";
         public string ReferencedTable { get; set; } = "";
         public string ReferencedColumns { get; set; } = "";
     }
@@ -947,6 +984,7 @@ public static class DataDiscoveryTool
 
     private class DataQualityProfile
     {
+        public string Schema { get; set; } = "";
         public string TableName { get; set; } = "";
         public int TotalRows { get; set; }
         public List<ColumnQualityMetric> ColumnQualityMetrics { get; set; } = new();
