@@ -112,7 +112,7 @@ In Claude Desktop, you can now ask:
 {
   "name": "Project Display Name",
   "connectionString": "Your SQL Server connection string",
-  "allowedSchema": "schema_name",
+  "allowedSchemas": ["dbo", "sales"],
   "permissions": {
     "allowRead": true,
     "allowWrite": true,
@@ -136,6 +136,14 @@ In Claude Desktop, you can now ask:
   "allowedOperations": ["SELECT", "INSERT", "UPDATE", "DELETE"]
 }
 ```
+
+#### Schemas
+
+- `allowedSchemas` is a list. Exploration tools (GetSchemaInfo, GetTableInfo, DiscoverData, AnalyzeTableRelationships, ProfileDataQuality, GetDatabasePerformanceStats) span every schema in the list, and results carry a `schema` field.
+- The **first** entry is the default for unqualified table names in write operations and the query builder.
+- Any tool that takes a table name accepts `table` or `schema.table`. A bare name that exists in more than one allowed schema is rejected with a message asking you to qualify it.
+- The legacy single-string `allowedSchema` still works and is treated as a one-item list. If both are present, `allowedSchemas` wins.
+- An empty list means no schema restriction. The database login's own permissions are always the real boundary.
 
 ### Example Configurations
 
@@ -276,8 +284,8 @@ dotnet run -- --test-connection --config your-project
 
 **Permission Denied**
 - Check your database user permissions
-- Verify the `allowedSchema` configuration
-- Ensure the user has access to the specified schema
+- Verify the `allowedSchemas` configuration (or legacy `allowedSchema`)
+- Ensure the user has access to the specified schemas
 
 **Configuration Not Found**
 - Verify the configuration file exists in `Configurations/`

@@ -101,7 +101,7 @@ public class ConfigService
         return JsonSerializer.Serialize(new
         {
             Name = config.Name,
-            Schema = config.AllowedSchema,
+            Schemas = config.EffectiveSchemas,
             Permissions = config.Permissions,
             Security = new
             {

@@ -68,11 +68,7 @@ public class SecurityService
     
     public bool IsSchemaAllowed(string schema)
     {
-        var allowedSchema = _configService.CurrentConfig.AllowedSchema;
-        if (string.IsNullOrEmpty(allowedSchema))
-            return true;
-            
-        return schema.Equals(allowedSchema, StringComparison.OrdinalIgnoreCase);
+        return SchemaScope.IsAllowed(schema, _configService.CurrentConfig);
     }
     
     public async Task<(bool IsValid, string? ErrorMessage)> ValidateQueryAsync(string query)
@@ -90,7 +86,8 @@ public class SecurityService
         {
             if (!IsSchemaAllowed(schema))
             {
-                return (false, $"Access to schema '{schema}' is not allowed");
+                var allowed = string.Join(", ", _configService.CurrentConfig.EffectiveSchemas);
+                return (false, $"Access to schema '{schema}' is not allowed. Allowed schemas: {allowed}");
             }
             
             var config = _configService.CurrentConfig;

@@ -35,7 +35,9 @@ public static class DeleteTools
                 return JsonSerializer.Serialize(new { error = "WHERE clause is required for DELETE operations to prevent accidental mass deletion" });
             }
 
-            var schemaName = config.AllowedSchema;
+            var reference = SchemaScope.ResolveWithDefault(tableName, config);
+            var schemaName = reference.Schema!;
+            tableName = reference.Table;
 
             // Validate table access
             var validationResult = await securityService.ValidateTableAccessAsync(schemaName, tableName);

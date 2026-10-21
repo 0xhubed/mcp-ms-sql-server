@@ -26,6 +26,8 @@ McpMsSqlServer/
 │   └── TransactionService.cs # Transaction management
 ├── Models/
 │   └── DatabaseConfig.cs   # Database configuration models
+├── Services/SchemaScope.cs # Multi-schema parsing, allow-list checks, catalog filters
+McpMsSqlServer.Tests/       # xunit tests (dotnet test McpMsSqlServer.Tests)
 ├── Configurations/         # Project-based configurations
 │   ├── default.json
 │   ├── project1.json
@@ -98,7 +100,7 @@ MCP_DEBUG=true dotnet run --project McpMsSqlServer
 ## Configuration Structure
 Each project configuration includes:
 - Connection string
-- Allowed schema
+- Allowed schemas (`allowedSchemas` list; first entry is the default for unqualified names; legacy `allowedSchema` string still accepted)
 - Read/write/delete permissions
 - Security settings (max rows, audit logging)
 - Query settings (timeout, joins allowed)

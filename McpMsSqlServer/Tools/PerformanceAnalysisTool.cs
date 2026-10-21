@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using ModelContextProtocol.Server;
 using System.ComponentModel;
+using McpMsSqlServer.Models;
 using McpMsSqlServer.Services;
 
 namespace McpMsSqlServer.Tools;
@@ -69,7 +70,7 @@ public static class PerformanceAnalysisTool
             // Get missing index suggestions
             if (includeIndexSuggestions)
             {
-                analysisResults.IndexSuggestions = await GetMissingIndexSuggestions(connection, config.AllowedSchema);
+                analysisResults.IndexSuggestions = await GetMissingIndexSuggestions(connection, config);
             }
 
             // Analyze query for common issues
@@ -126,10 +127,10 @@ public static class PerformanceAnalysisTool
             }
 
             // Get index usage statistics
-            performanceStats.IndexUsageStats = await GetIndexUsageStatistics(connection, config.AllowedSchema);
+            performanceStats.IndexUsageStats = await GetIndexUsageStatistics(connection, config);
 
             // Get table statistics
-            performanceStats.TableStats = await GetTableStatistics(connection, config.AllowedSchema);
+            performanceStats.TableStats = await GetTableStatistics(connection, config);
 
             return JsonSerializer.Serialize(new
             {
@@ -293,7 +294,7 @@ public static class PerformanceAnalysisTool
         result.QueryOptimizations.AddRange(plan.CostlyOperations);
     }
 
-    private static async Task<List<IndexSuggestion>> GetMissingIndexSuggestions(SqlConnection connection, string schema)
+    private static async Task<List<IndexSuggestion>> GetMissingIndexSuggestions(SqlConnection connection, DatabaseConfig config)
     {
         var suggestions = new List<IndexSuggestion>();
         
@@ -315,8 +316,10 @@ public static class PerformanceAnalysisTool
         
         while (await reader.ReadAsync())
         {
+            // d.statement is "[db].[schema].[table]"; keep rows whose schema is allowed
             var tableName = reader.GetString(0);
-            if (tableName.Contains($"[{schema}]"))
+            var schemas = config.EffectiveSchemas;
+            if (schemas.Count == 0 || schemas.Any(s => tableName.Contains($"[{s}].", StringComparison.OrdinalIgnoreCase)))
             {
                 suggestions.Add(new IndexSuggestion
                 {
@@ -496,12 +499,14 @@ public static class PerformanceAnalysisTool
         return waitStats;
     }
 
-    private static async Task<List<IndexUsageStatistic>> GetIndexUsageStatistics(SqlConnection connection, string schema)
+    private static async Task<List<IndexUsageStatistic>> GetIndexUsageStatistics(SqlConnection connection, DatabaseConfig config)
     {
         var indexStats = new List<IndexUsageStatistic>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(t.schema_id)", config);
+
+        var query = $@"
+            SELECT
+                SCHEMA_NAME(t.schema_id) AS SchemaName,
                 t.name AS TableName,
                 i.name AS IndexName,
                 i.type_desc AS IndexType,
@@ -512,62 +517,66 @@ public static class PerformanceAnalysisTool
             FROM sys.indexes i
             INNER JOIN sys.tables t ON i.object_id = t.object_id
             LEFT JOIN sys.dm_db_index_usage_stats us ON i.object_id = us.object_id AND i.index_id = us.index_id
-            WHERE t.schema_id = SCHEMA_ID(@schema)
+            WHERE {filter.Sql}
             AND i.type > 0
-            ORDER BY t.name, i.name";
+            ORDER BY SCHEMA_NAME(t.schema_id), t.name, i.name";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
-        
+        filter.ApplyTo(cmd);
+
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             indexStats.Add(new IndexUsageStatistic
             {
-                TableName = reader.GetString(0),
-                IndexName = reader.GetString(1),
-                IndexType = reader.GetString(2),
-                UserSeeks = reader.IsDBNull(3) ? 0 : reader.GetInt64(3),
-                UserScans = reader.IsDBNull(4) ? 0 : reader.GetInt64(4),
-                UserLookups = reader.IsDBNull(5) ? 0 : reader.GetInt64(5),
-                UserUpdates = reader.IsDBNull(6) ? 0 : reader.GetInt64(6)
+                SchemaName = reader.GetString(0),
+                TableName = reader.GetString(1),
+                IndexName = reader.GetString(2),
+                IndexType = reader.GetString(3),
+                UserSeeks = reader.IsDBNull(4) ? 0 : reader.GetInt64(4),
+                UserScans = reader.IsDBNull(5) ? 0 : reader.GetInt64(5),
+                UserLookups = reader.IsDBNull(6) ? 0 : reader.GetInt64(6),
+                UserUpdates = reader.IsDBNull(7) ? 0 : reader.GetInt64(7)
             });
         }
 
         return indexStats;
     }
 
-    private static async Task<List<TableStatistic>> GetTableStatistics(SqlConnection connection, string schema)
+    private static async Task<List<TableStatistic>> GetTableStatistics(SqlConnection connection, DatabaseConfig config)
     {
         var tableStats = new List<TableStatistic>();
-        
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(t.schema_id)", config);
+
+        var query = $@"
+            SELECT
+                SCHEMA_NAME(t.schema_id) AS SchemaName,
                 t.name AS TableName,
-                p.rows AS RowCount,
+                p.rows AS [RowCount],
                 SUM(a.total_pages) * 8 AS TotalSpaceKB,
                 SUM(a.used_pages) * 8 AS UsedSpaceKB
             FROM sys.tables t
             INNER JOIN sys.indexes i ON t.object_id = i.object_id
             INNER JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
             INNER JOIN sys.allocation_units a ON p.partition_id = a.container_id
-            WHERE t.schema_id = SCHEMA_ID(@schema)
+            WHERE {filter.Sql}
             AND i.index_id <= 1
-            GROUP BY t.name, p.rows
+            GROUP BY SCHEMA_NAME(t.schema_id), t.name, p.rows
             ORDER BY p.rows DESC";
 
         using var cmd = new SqlCommand(query, connection);
-        cmd.Parameters.AddWithValue("@schema", schema);
-        
+        filter.ApplyTo(cmd);
+
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             tableStats.Add(new TableStatistic
             {
-                TableName = reader.GetString(0),
-                RowCount = reader.GetInt64(1),
-                TotalSpaceKB = reader.GetInt64(2),
-                UsedSpaceKB = reader.GetInt64(3)
+                SchemaName = reader.GetString(0),
+                TableName = reader.GetString(1),
+                RowCount = reader.GetInt64(2),
+                TotalSpaceKB = reader.GetInt64(3),
+                UsedSpaceKB = reader.GetInt64(4)
             });
         }
 
@@ -700,6 +709,7 @@ public static class PerformanceAnalysisTool
 
     private class IndexUsageStatistic
     {
+        public string SchemaName { get; set; } = "";
         public string TableName { get; set; } = "";
         public string IndexName { get; set; } = "";
         public string IndexType { get; set; } = "";
@@ -711,6 +721,7 @@ public static class PerformanceAnalysisTool
 
     private class TableStatistic
     {
+        public string SchemaName { get; set; } = "";
         public string TableName { get; set; } = "";
         public long RowCount { get; set; }
         public long TotalSpaceKB { get; set; }

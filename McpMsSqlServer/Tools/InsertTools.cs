@@ -30,7 +30,9 @@ public static class InsertTools
                 return JsonSerializer.Serialize(new { error = "Write operations are not allowed for this configuration" });
             }
 
-            var schemaName = config.AllowedSchema;
+            var reference = SchemaScope.ResolveWithDefault(tableName, config);
+            var schemaName = reference.Schema!;
+            tableName = reference.Table;
 
             // Validate table access
             var validationResult = await securityService.ValidateTableAccessAsync(schemaName, tableName);

@@ -22,7 +22,14 @@ public static class TableInfoTools
         try
         {
             var config = configService.CurrentConfig;
-            var schemaName = config.AllowedSchema;
+
+            using var connection = databaseService.CreateConnection();
+            await connection.OpenAsync();
+
+            // Accepts "table" or "schema.table"; a bare name must be unique across allowed schemas
+            var reference = await SchemaScope.ResolveAsync(connection, config, tableName);
+            var schemaName = reference.Schema!;
+            tableName = reference.Table;
 
             // Validate table access
             var validationResult = await securityService.ValidateTableAccessAsync(schemaName, tableName);
@@ -30,9 +37,6 @@ public static class TableInfoTools
             {
                 return JsonSerializer.Serialize(new { error = validationResult.ErrorMessage });
             }
-
-            using var connection = databaseService.CreateConnection();
-            await connection.OpenAsync();
 
             // Get row count
             var countQuery = @"

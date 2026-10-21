@@ -1,4 +1,5 @@
 using ModelContextProtocol.Server;
+using McpMsSqlServer.Models;
 using McpMsSqlServer.Services;
 using System.ComponentModel;
 using System.Text.Json;
@@ -20,20 +21,20 @@ public static class SchemaTools
         try
         {
             var config = configService.CurrentConfig;
-            var schemaName = config.AllowedSchema;
 
             using var connection = databaseService.CreateConnection();
             await connection.OpenAsync();
 
             if (!string.IsNullOrEmpty(tableName))
             {
-                // Get specific table info
-                return await GetTableSchema(connection, schemaName, tableName);
+                // Get specific table info; accepts "table" or "schema.table"
+                var reference = await SchemaScope.ResolveAsync(connection, config, tableName);
+                return await GetTableSchema(connection, reference.Schema!, reference.Table);
             }
             else
             {
-                // Get all tables and views in schema
-                return await GetAllTablesInSchema(connection, schemaName);
+                // Get all tables and views across every allowed schema
+                return await GetAllTables(connection, config);
             }
         }
         catch (Exception ex)
@@ -42,21 +43,23 @@ public static class SchemaTools
         }
     }
 
-    private static async Task<string> GetAllTablesInSchema(SqlConnection connection, string schemaName)
+    private static async Task<string> GetAllTables(SqlConnection connection, DatabaseConfig config)
     {
-        var query = @"
-            SELECT 
+        var filter = SchemaScope.BuildSchemaFilter("t.TABLE_SCHEMA", config);
+        var query = $@"
+            SELECT
+                t.TABLE_SCHEMA,
                 t.TABLE_NAME,
                 t.TABLE_TYPE,
                 CAST(p.rows AS BIGINT) as ROW_COUNT
             FROM INFORMATION_SCHEMA.TABLES t
             LEFT JOIN sys.tables st ON st.name = t.TABLE_NAME AND SCHEMA_NAME(st.schema_id) = t.TABLE_SCHEMA
             LEFT JOIN sys.partitions p ON p.object_id = st.object_id AND p.index_id IN (0, 1)
-            WHERE t.TABLE_SCHEMA = @schemaName
-            ORDER BY t.TABLE_TYPE, t.TABLE_NAME";
+            WHERE {filter.Sql}
+            ORDER BY t.TABLE_SCHEMA, t.TABLE_TYPE, t.TABLE_NAME";
 
         using var command = new SqlCommand(query, connection);
-        command.Parameters.AddWithValue("@schemaName", schemaName);
+        filter.ApplyTo(command);
 
         using var reader = await command.ExecuteReaderAsync();
         var tables = new List<object>();
@@ -65,16 +68,17 @@ public static class SchemaTools
         {
             tables.Add(new
             {
-                name = reader.GetString(0),
-                type = reader.GetString(1),
-                rowCount = reader.IsDBNull(2) ? null : (long?)reader.GetInt64(2)
+                schema = reader.GetString(0),
+                name = reader.GetString(1),
+                type = reader.GetString(2),
+                rowCount = reader.IsDBNull(3) ? null : (long?)reader.GetInt64(3)
             });
         }
 
         return JsonSerializer.Serialize(new
         {
             success = true,
-            schema = schemaName,
+            schemas = config.EffectiveSchemas,
             tableCount = tables.Count,
             tables = tables
         }, new JsonSerializerOptions { WriteIndented = true });
@@ -111,22 +115,25 @@ public static class SchemaTools
         command.Parameters.AddWithValue("@schemaName", schemaName);
         command.Parameters.AddWithValue("@tableName", tableName);
 
-        using var reader = await command.ExecuteReaderAsync();
         var columns = new List<object>();
 
-        while (await reader.ReadAsync())
+        // Scoped so the reader is closed before the same connection runs the FK query
+        using (var reader = await command.ExecuteReaderAsync())
         {
-            columns.Add(new
+            while (await reader.ReadAsync())
             {
-                name = reader.GetString(0),
-                dataType = reader.GetString(1),
-                maxLength = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2),
-                precision = reader.IsDBNull(3) ? null : (byte?)reader.GetByte(3),
-                scale = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
-                isNullable = reader.GetString(5) == "YES",
-                defaultValue = reader.IsDBNull(6) ? null : reader.GetString(6),
-                isPrimaryKey = reader.GetString(7) == "YES"
-            });
+                columns.Add(new
+                {
+                    name = reader.GetString(0),
+                    dataType = reader.GetString(1),
+                    maxLength = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2),
+                    precision = reader.IsDBNull(3) ? null : (byte?)reader.GetByte(3),
+                    scale = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
+                    isNullable = reader.GetString(5) == "YES",
+                    defaultValue = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    isPrimaryKey = reader.GetString(7) == "YES"
+                });
+            }
         }
 
         // Get foreign keys
