@@ -115,22 +115,25 @@ public static class SchemaTools
         command.Parameters.AddWithValue("@schemaName", schemaName);
         command.Parameters.AddWithValue("@tableName", tableName);
 
-        using var reader = await command.ExecuteReaderAsync();
         var columns = new List<object>();
 
-        while (await reader.ReadAsync())
+        // Scoped so the reader is closed before the same connection runs the FK query
+        using (var reader = await command.ExecuteReaderAsync())
         {
-            columns.Add(new
+            while (await reader.ReadAsync())
             {
-                name = reader.GetString(0),
-                dataType = reader.GetString(1),
-                maxLength = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2),
-                precision = reader.IsDBNull(3) ? null : (byte?)reader.GetByte(3),
-                scale = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
-                isNullable = reader.GetString(5) == "YES",
-                defaultValue = reader.IsDBNull(6) ? null : reader.GetString(6),
-                isPrimaryKey = reader.GetString(7) == "YES"
-            });
+                columns.Add(new
+                {
+                    name = reader.GetString(0),
+                    dataType = reader.GetString(1),
+                    maxLength = reader.IsDBNull(2) ? null : (int?)reader.GetInt32(2),
+                    precision = reader.IsDBNull(3) ? null : (byte?)reader.GetByte(3),
+                    scale = reader.IsDBNull(4) ? null : (int?)reader.GetInt32(4),
+                    isNullable = reader.GetString(5) == "YES",
+                    defaultValue = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    isPrimaryKey = reader.GetString(7) == "YES"
+                });
+            }
         }
 
         // Get foreign keys
