@@ -552,7 +552,7 @@ public static class PerformanceAnalysisTool
             SELECT
                 SCHEMA_NAME(t.schema_id) AS SchemaName,
                 t.name AS TableName,
-                p.rows AS RowCount,
+                p.rows AS [RowCount],
                 SUM(a.total_pages) * 8 AS TotalSpaceKB,
                 SUM(a.used_pages) * 8 AS UsedSpaceKB
             FROM sys.tables t

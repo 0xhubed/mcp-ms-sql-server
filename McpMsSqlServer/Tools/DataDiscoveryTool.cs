@@ -224,7 +224,7 @@ public static class DataDiscoveryTool
                 t.TABLE_SCHEMA,
                 t.TABLE_NAME,
                 t.TABLE_TYPE,
-                p.rows as RowCount,
+                p.rows AS [RowCount],
                 (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_SCHEMA = t.TABLE_SCHEMA AND c.TABLE_NAME = t.TABLE_NAME) as ColumnCount
             FROM INFORMATION_SCHEMA.TABLES t
             LEFT JOIN sys.partitions p ON p.object_id = OBJECT_ID(QUOTENAME(t.TABLE_SCHEMA) + '.' + QUOTENAME(t.TABLE_NAME)) AND p.index_id IN (0,1)
