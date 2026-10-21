@@ -69,15 +69,26 @@ public static class SchemaScope
     /// </summary>
     public static SchemaFilter BuildSchemaFilter(string columnExpression, DatabaseConfig config)
     {
-        var schemas = config.EffectiveSchemas;
-        if (schemas.Count == 0)
+        if (config.EffectiveSchemas.Count == 0)
             return new SchemaFilter("1 = 1", new Dictionary<string, string>());
 
+        return BuildInFilter(columnExpression, config.EffectiveSchemas, "schema");
+    }
+
+    /// <summary>
+    /// Builds <c>column IN (@prefix0, @prefix1, ...)</c> over arbitrary values, or an always-false
+    /// predicate when the list is empty. Avoids STRING_SPLIT, which needs compatibility level 130+.
+    /// </summary>
+    public static SchemaFilter BuildInFilter(string columnExpression, IEnumerable<string> values, string parameterPrefix)
+    {
         var parameters = new Dictionary<string, string>();
-        for (var i = 0; i < schemas.Count; i++)
+        foreach (var value in values)
         {
-            parameters[$"@schema{i}"] = schemas[i];
+            parameters[$"@{parameterPrefix}{parameters.Count}"] = value;
         }
+
+        if (parameters.Count == 0)
+            return new SchemaFilter("1 = 0", parameters);
 
         return new SchemaFilter($"{columnExpression} IN ({string.Join(", ", parameters.Keys)})", parameters);
     }

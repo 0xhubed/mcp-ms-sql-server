@@ -302,6 +302,8 @@ public static class DataDiscoveryTool
     {
         var relationships = new List<TableRelationship>();
         var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(fk.schema_id)", config);
+        var parentFilter = SchemaScope.BuildInFilter("OBJECT_NAME(fk.parent_object_id)", tables, "parent");
+        var referencedFilter = SchemaScope.BuildInFilter("OBJECT_NAME(fk.referenced_object_id)", tables, "referenced");
 
         var query = $@"
             SELECT
@@ -317,13 +319,13 @@ public static class DataDiscoveryTool
             FROM sys.foreign_keys fk
             INNER JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
             WHERE {filter.Sql}
-            AND (OBJECT_NAME(fk.parent_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ','))
-                OR OBJECT_NAME(fk.referenced_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ',')))
+            AND ({parentFilter.Sql} OR {referencedFilter.Sql})
             ORDER BY FK_Schema, FK_Table, FK_Column";
 
         using var cmd = new SqlCommand(query, connection);
         filter.ApplyTo(cmd);
-        cmd.Parameters.AddWithValue("@tables", string.Join(",", tables));
+        parentFilter.ApplyTo(cmd);
+        referencedFilter.ApplyTo(cmd);
 
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
@@ -438,6 +440,7 @@ public static class DataDiscoveryTool
     {
         var foreignKeys = new List<ForeignKeyInfo>();
         var filter = SchemaScope.BuildSchemaFilter("SCHEMA_NAME(fk.schema_id)", config);
+        var tableFilter = SchemaScope.BuildInFilter("OBJECT_NAME(fk.parent_object_id)", tables, "table");
 
         var query = $@"
             SELECT
@@ -456,12 +459,12 @@ public static class DataDiscoveryTool
                        FOR XML PATH('')), 1, 2, '') AS PKColumns
             FROM sys.foreign_keys fk
             WHERE {filter.Sql}
-            AND OBJECT_NAME(fk.parent_object_id) IN (SELECT value FROM STRING_SPLIT(@tables, ','))
+            AND {tableFilter.Sql}
             ORDER BY FKSchema, FKTable";
 
         using var cmd = new SqlCommand(query, connection);
         filter.ApplyTo(cmd);
-        cmd.Parameters.AddWithValue("@tables", string.Join(",", tables));
+        tableFilter.ApplyTo(cmd);
 
         using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())

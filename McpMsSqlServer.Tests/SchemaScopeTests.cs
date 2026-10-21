@@ -106,6 +106,19 @@ public class SchemaScopeTests
     }
 
     [Fact]
+    public void BuildInFilter_UsesGivenPrefix_AndMatchesNothingWhenEmpty()
+    {
+        var filter = SchemaScope.BuildInFilter("OBJECT_NAME(fk.parent_object_id)", new[] { "Orders", "Lines" }, "table");
+
+        Assert.Equal("OBJECT_NAME(fk.parent_object_id) IN (@table0, @table1)", filter.Sql);
+        Assert.Equal(new Dictionary<string, string> { ["@table0"] = "Orders", ["@table1"] = "Lines" }, filter.Parameters);
+
+        var empty = SchemaScope.BuildInFilter("x", Array.Empty<string>(), "table");
+        Assert.Equal("1 = 0", empty.Sql);
+        Assert.Empty(empty.Parameters);
+    }
+
+    [Fact]
     public void QualifiedName_BracketsBothParts()
     {
         Assert.Equal("[sales].[Order Lines]", SchemaScope.QualifiedName(new TableReference("sales", "Order Lines")));
